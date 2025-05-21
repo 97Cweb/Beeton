@@ -1,53 +1,46 @@
-#ifndef BEETON_H
-#define BEETON_H
+#ifndef BEETON_PROTOCOL_H
+#define BEETON_PROTOCOL_H
 
 #include <Arduino.h>
 #include <LightThread.h>
+#include <vector>
 #include <map>
+#include <functional>
 
+namespace BEETON {
+    constexpr bool RELIABLE = true;
+    constexpr bool UNRELIABLE = false;
+}
 
-struct Packet {
-    uint8_t reliable;              // 1 byte
-    uint16_t thing;                // 2 bytes (enum)
-    uint16_t id;                   // 2 bytes
-    uint8_t priority;             // 1 byte
-    uint32_t sequence;           // 4 bytes
-    uint8_t action;               // 1 byte
-    uint8_t dataLength;           // 1 byte
-    uint8_t* data;                // pointer to payload
+struct BeetonThing {
+    uint8_t thing;
+    uint8_t id;
 };
-
 
 class Beeton {
 public:
-    Beeton(LightThread& lightThread);
-    
-    // Packet handling
-    bool sendPacket(const Packet& packet);
+    void begin(LightThread& lt);
+    void update();
 
-    // Utility methods
-	using PacketHandler = void(*)(const Packet&, const String&);
-	void update(PacketHandler handler = nullptr);
+    // Simple send API
+    bool send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint8_t payloadByte);
+    bool send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
 
-
+    // Message receive handler
+    void onMessage(std::function<void(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload)> cb);
+	void defineThings(const std::initializer_list<BeetonThing>& list);
 
 private:
-    LightThread& lightThread; // Reference to LightThread for communication
-	PacketHandler handler = nullptr;
-    bool parsePacket(const uint8_t* rawData, size_t length, Packet& packet);
-    bool constructPacket(const Packet& packet, uint8_t* rawData, size_t& length);
-	
-	struct DeviceKey {
-		uint16_t thing;
-		uint16_t id;
-		bool operator<(const DeviceKey& other) const {
-			return std::tie(thing, id) < std::tie(other.thing, other.id);
-		}
-	};
+    LightThread* lightThread = nullptr;
+	std::map<uint16_t, String> thingIdToIp;  // thing<<8 | id → IP
+    std::vector<BeetonThing> localThings;
 
-	std::map<DeviceKey, String> joinerTable;
+    std::function<void(uint8_t, uint8_t, uint8_t, const std::vector<uint8_t>&)> messageCallback = nullptr;
 
-	
+
+    std::vector<uint8_t> buildPacket(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
+    bool parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_t& id, uint8_t& action, std::vector<uint8_t>& payload);
+	void handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
 };
 
-#endif
+#endif // BEETON_PROTOCOL_H

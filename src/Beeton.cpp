@@ -1,99 +1,106 @@
 #include "Beeton.h"
 
-Beeton::Beeton(LightThread& lightThread) : lightThread(lightThread) {
-	lightThread.setNormalPacketHandler([this](const uint8_t* data, size_t len, const String& ip) {
-    Packet packet;
-    if (this->parsePacket(data, len, packet)) {
-        DeviceKey key{packet.thing, packet.id};
-        if (this->joinerTable.count(key) == 0) {
-            this->joinerTable[key] = ip;
-            Serial.printf("[JOIN] Device (%u:%u) registered from %s\n", packet.thing, packet.id, ip.c_str());
-        }
+void Beeton::begin(LightThread& lt) {
+    lightThread = &lt;
 
-        if (this->handler) {
-            this->handler(packet, ip);
-        }
+    lightThread->registerUdpReceiveCallback([this](const String& srcIp, const std::vector<uint8_t>& payload) {
+		uint8_t thing, id, action;
+		std::vector<uint8_t> content;
 
-        delete[] packet.data;
-    }
-});
-
+		if (parsePacket(payload, thing, id, action, content)) {
+			handleInternalMessage(srcIp, thing, id, action, content);
+		} else {
+			log_w("Beeton: Invalid packet from %s", srcIp.c_str());
+		}
+	});
 	
+	lightThread->registerJoinCallback([this](const String& ip, const String& hashmac) {
+        // Construct a WHOAREYOU query with no payload
+        std::vector<uint8_t> who = buildPacket(0xFF, 0xFF, 0xFF, {}); // action 0xFF = WHOAREYOU
+        lightThread->sendUdp(ip, true, who);
+    });
 }
 
-bool Beeton::sendPacket(const Packet& packet) {
-    uint8_t rawData[256]; // Adjust size as needed
-    size_t length = 0;
+void Beeton::update() {
+    if (lightThread) lightThread->update();
+}
 
-    if (!constructPacket(packet, rawData, length)) {
-        Serial.println("Failed to construct packet.");
+bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint8_t payloadByte) {
+    std::vector<uint8_t> payload = { payloadByte };
+    return send(reliable, thing, id, action, payload);
+}
+
+bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+    if (!lightThread) return false;
+    uint16_t key = (thing << 8) | id;
+
+    if (!thingIdToIp.count(key)) {
+        log_w("Beeton: No IP for thing %u id %u", thing, id);
         return false;
     }
 
-    return lightThread.sendData(rawData, length, static_cast<LightThread::AckType>(packet.reliable));
+    std::vector<uint8_t> packet = buildPacket(thing, id, action, payload);
+    return lightThread->sendUdp(thingIdToIp[key], reliable, packet);
 }
 
+void Beeton::onMessage(std::function<void(uint8_t, uint8_t, uint8_t, const std::vector<uint8_t>&)> cb) {
+    messageCallback = cb;
+}
 
-bool Beeton::constructPacket(const Packet& packet, uint8_t* rawData, size_t& length) {
-    length = 0;
+void Beeton::defineThings(const std::initializer_list<BeetonThing>& list) {
+    localThings.assign(list.begin(), list.end());
+}
 
-    rawData[length++] = packet.thing >> 8;
-    rawData[length++] = packet.thing & 0xFF;
-    rawData[length++] = packet.id >> 8;
-    rawData[length++] = packet.id & 0xFF;
-    rawData[length++] = packet.priority;
+std::vector<uint8_t> Beeton::buildPacket(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+    std::vector<uint8_t> out;
+    out.push_back(thing);
+    out.push_back(id);
+    out.push_back(action);
+    out.push_back(static_cast<uint8_t>(payload.size()));
+    out.insert(out.end(), payload.begin(), payload.end());
+    return out;
+}
 
-    rawData[length++] = (packet.sequence >> 24) & 0xFF;
-    rawData[length++] = (packet.sequence >> 16) & 0xFF;
-    rawData[length++] = (packet.sequence >> 8) & 0xFF;
-    rawData[length++] = packet.sequence & 0xFF;
+bool Beeton::parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_t& id, uint8_t& action, std::vector<uint8_t>& payload) {
+    if (raw.size() < 4) return false;
 
-    rawData[length++] = packet.action;
-    rawData[length++] = packet.dataLength;
+    thing = raw[0];
+    id = raw[1];
+    action = raw[2];
+    uint8_t len = raw[3];
 
-    for (uint8_t i = 0; i < packet.dataLength; ++i) {
-        rawData[length++] = packet.data[i];
-    }
-
+    if (raw.size() != 4 + len) return false;
+    payload.assign(raw.begin() + 4, raw.end());
     return true;
 }
 
-
-bool Beeton::parsePacket(const uint8_t* rawData, size_t length, Packet& packet) {
-    if (length < 12) { // Minimum size with no data
-        Serial.println("Invalid packet length.");
-        return false;
+void Beeton::handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+    // WHOAREYOU_REPLY → only process on leader
+    if (thing == 0xFF && id == 0xFF && action == 0xFF) {
+        if (lightThread && lightThread->getRole() == Role::LEADER) {
+            for (size_t i = 0; i + 1 < payload.size(); i += 2) {
+                uint8_t t = payload[i];
+                uint8_t i_ = payload[i + 1];
+                uint16_t key = (t << 8) | i_;
+                thingIdToIp[key] = srcIp;
+                Serial.printf("[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
+            }
+        } else {
+            // Joiner auto-replies with its identity
+            std::vector<uint8_t> reply;
+            for (const auto& entry : localThings) {
+                reply.push_back(entry.thing);
+                reply.push_back(entry.id);
+            }
+            send(BEETON::RELIABLE, 0xFF, 0xFF, 0xFF, reply);
+            Serial.println("[Joiner] Sent WHOAREYOU_REPLY");
+        }
+        return;
     }
 
-    size_t index = 0;
-
-    packet.thing = (rawData[index++] << 8) | rawData[index++];
-    packet.id = (rawData[index++] << 8) | rawData[index++];
-    packet.priority = rawData[index++];
-
-    packet.sequence = (rawData[index++] << 24) | (rawData[index++] << 16) |
-                      (rawData[index++] << 8) | rawData[index++];
-
-    packet.action = rawData[index++];
-    packet.dataLength = rawData[index++];
-
-    if (length < index + packet.dataLength) {
-        Serial.println("Incomplete data field.");
-        return false;
+    // Call user callback only for normal messages
+    if (messageCallback) {
+        messageCallback(thing, id, action, payload);
     }
-
-    packet.data = new uint8_t[packet.dataLength];
-    for (uint8_t i = 0; i < packet.dataLength; ++i) {
-        packet.data[i] = rawData[index++];
-    }
-
-    return true;
 }
-
-void Beeton::update(PacketHandler userHandler) {
-    this->handler = userHandler;
-    lightThread.update(); // Let LightThread drive pairing, heartbeats, etc
-}
-
-
 

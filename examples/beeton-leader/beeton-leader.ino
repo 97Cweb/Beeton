@@ -1,42 +1,32 @@
-#include <Arduino.h>
-#include <LightThread.h>
-#include <Beeton.h>
-#include <map>
 
-#include <LightThread.h>
+#include "Beeton.h"
 
-// Define Thread network parameters
-const String LEADER_IP = "fd00:0:0:0::1"; // customise if you plan on being near others
-const String NETWORK_KEY = "00112233445566778899AABBCCDDEEFF"; // Replace with your key
-const String NETWORK_NAME = "TestNetwork";
-const int CHANNEL = 11;
+// NOTE: You must define your own MYTHINGS and MYACTIONS in a file like MYBEETON.h
+#include "../MYBEETON.h"
 
-#define JOIN_BUTTON_PIN 9
-
-LightThread lightThread(JOIN_BUTTON_PIN, LightThread::LEADER, LEADER_IP, NETWORK_KEY,NETWORK_NAME, CHANNEL);
-
-Beeton beeton(lightThread);
-
-
-void handlePacket(const Packet& packet, const String& srcIp) {
-    if (packet.thing == 0x0001) { // TRAIN
-        switch (packet.id) {
-            case 1:
-                Serial.println("TRAIN 1 received action");
-                break;
-            case 2:
-                Serial.println("TRAIN 2 received action");
-                break;
-        }
-    }
-}
+Beeton beeton;
+LightThread lightThread;
 
 void setup() {
     Serial.begin(115200);
     lightThread.begin();
+    beeton.begin(lightThread);
+
+    beeton.onMessage([](uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+        Serial.printf("Received action %u for %u:%u with %d bytes\n", action, thing, id, payload.size());
+        // You can now do high-level handling here
+    });
 }
 
 void loop() {
-    beeton.update(handlePacket);
-    delay(50);
+    beeton.update();
+
+    if (lightThread.isReady()) {
+        // Example: send a SETSPEED action to MOTOR 1 every 5 seconds
+        static unsigned long last = 0;
+        if (millis() - last > 5000) {
+            last = millis();
+            beeton.send(BEETON::RELIABLE, MYTHINGS::MOTOR, 1, MYACTIONS::SETSPEED, 100);
+        }
+    }
 }
