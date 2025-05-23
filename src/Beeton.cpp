@@ -15,10 +15,21 @@ void Beeton::begin(LightThread& lt) {
 	});
 	
 	lightThread->registerJoinCallback([this](const String& ip, const String& hashmac) {
-        // Construct a WHOAREYOU query with no payload
-        std::vector<uint8_t> who = buildPacket(0xFF, 0xFF, 0xFF, {}); // action 0xFF = WHOAREYOU
-        lightThread->sendUdp(ip, true, who);
-    });
+		// Only announce if we’re the joiner
+		if (lightThread->getRole() != Role::JOINER) return;
+
+		std::vector<uint8_t> payload;
+		for (const auto& entry : localThings) {
+			payload.push_back(entry.thing);
+			payload.push_back(entry.id);
+		}
+
+		std::vector<uint8_t> packet = buildPacket(0xFF, 0xFF, 0xFF, payload);
+
+		lightThread->sendUdp(ip, BEETON::RELIABLE, packet);
+		Serial.println("[Joiner] Sent WHOAREYOU_REPLY automatically");
+	});
+
 }
 
 void Beeton::update() {
@@ -75,28 +86,20 @@ bool Beeton::parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_
 }
 
 void Beeton::handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
-    // WHOAREYOU_REPLY → only process on leader
     if (thing == 0xFF && id == 0xFF && action == 0xFF) {
-        if (lightThread && lightThread->getRole() == Role::LEADER) {
-            for (size_t i = 0; i + 1 < payload.size(); i += 2) {
-                uint8_t t = payload[i];
-                uint8_t i_ = payload[i + 1];
-                uint16_t key = (t << 8) | i_;
-                thingIdToIp[key] = srcIp;
-                Serial.printf("[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
-            }
-        } else {
-            // Joiner auto-replies with its identity
-            std::vector<uint8_t> reply;
-            for (const auto& entry : localThings) {
-                reply.push_back(entry.thing);
-                reply.push_back(entry.id);
-            }
-            send(BEETON::RELIABLE, 0xFF, 0xFF, 0xFF, reply);
-            Serial.println("[Joiner] Sent WHOAREYOU_REPLY");
-        }
-        return;
-    }
+		if (lightThread && lightThread->getRole() == Role::LEADER) {
+			// Map each (thing, id) to the joiner's IP
+			for (size_t i = 0; i + 1 < payload.size(); i += 2) {
+				uint8_t t = payload[i];
+				uint8_t i_ = payload[i + 1];
+				uint16_t key = (t << 8) | i_;
+				thingIdToIp[key] = srcIp;
+				Serial.printf("[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
+			}
+		}
+		return;
+	}
+
 
     // Call user callback only for normal messages
     if (messageCallback) {
