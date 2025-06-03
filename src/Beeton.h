@@ -23,6 +23,7 @@ public:
     void update();
 
     // Simple send API
+	bool send(bool reliable, uint8_t thing, uint8_t id, uint8_t action);
     bool send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint8_t payloadByte);
     bool send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
 

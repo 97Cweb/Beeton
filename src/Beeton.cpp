@@ -4,6 +4,11 @@ void Beeton::begin(LightThread& lt) {
     lightThread = &lt;
 
     lightThread->registerUdpReceiveCallback([this](const String& srcIp, const std::vector<uint8_t>& payload) {
+		if (payload.size() < 4) {
+			log_d("Beeton: Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
+			return;
+		}
+		
 		uint8_t thing, id, action;
 		std::vector<uint8_t> content;
 
@@ -34,6 +39,11 @@ void Beeton::begin(LightThread& lt) {
 
 void Beeton::update() {
     if (lightThread) lightThread->update();
+}
+
+bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action){
+	std::vector<uint8_t> payload;  // empty vector
+    return send(reliable, thing, id, action, payload);
 }
 
 bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint8_t payloadByte) {
