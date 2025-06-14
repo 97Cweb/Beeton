@@ -1,9 +1,6 @@
 
 #include "Beeton.h"
 
-// NOTE: You must define your own MYTHINGS and MYACTIONS in a file like MYBEETON.h
-#include "../MYBEETON.h"
-
 Beeton beeton;
 LightThread lightThread;
 
@@ -26,7 +23,10 @@ void loop() {
         static unsigned long last = 0;
         if (millis() - last > 5000) {
             last = millis();
-            beeton.send(BEETON::RELIABLE, MYTHINGS::MOTOR, 1, MYACTIONS::SETSPEED, 100);
+            Serial.printf("thing %02X\n",beeton.getThingId("train"));
+            Serial.printf("action %02X\n",beeton.getActionId("train", "setspeed"));
+            beeton.send(BEETON::RELIABLE, beeton.getThingId("train"), 1, beeton.getActionId("train", "setspeed"), 100);
+
         }
     }
 }

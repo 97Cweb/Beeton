@@ -1,8 +1,5 @@
 #include <Beeton.h>
 
-// NOTE: You must define your own MYTHINGS and MYACTIONS in a file like MYBEETON.h
-#include "../MYBEETON.h"
-
 LightThread lightThread;
 Beeton beeton;
 
@@ -13,17 +10,17 @@ void setup() {
     lightThread.begin();
     beeton.begin(lightThread);
 
-    // Declare available devices
-    beeton.defineThings({
-        { MYTHINGS::MOTOR, 1 },
-        { MYTHINGS::MOTOR, 2 },
-        { MYTHINGS::SENSOR, 1 }
-    });
-
     // Handle only user-defined actions
-    beeton.onMessage([](uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
-        if (thing == MYTHINGS::MOTOR && action == MYACTIONS::SETSPEED && payload.size() == 1) {
+    beeton.onMessage([](uint8_t thingId, uint8_t id, uint8_t actionId, const std::vector<uint8_t>& payload) {
+        String thing = beeton.getThingName(thingId);
+        String action = beeton.getActionName(thing, actionId);
+        if (thing == "train"){
+          if (action == "setspeed" && payload.size() == 1) {
             Serial.printf("[Motor %d] Set speed to %d\n", id, payload[0]);
+          } 
+        } 
+        else if (thing == "signal") {
+            Serial.printf("🚦 Signal %d: Action %d\n", id, action);
         }
     });
 }

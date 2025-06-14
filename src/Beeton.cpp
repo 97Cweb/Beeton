@@ -1,4 +1,6 @@
 #include "Beeton.h"
+#include <FS.h>
+#include <SD.h>
 
 void Beeton::begin(LightThread& lt) {
     lightThread = &lt;
@@ -19,7 +21,7 @@ void Beeton::begin(LightThread& lt) {
 		}
 	});
 	
-	lightThread->registerJoinCallback([this](const String& ip, const String& hashmac) {
+    lightThread->registerJoinCallback([this](const String& ip, const String& hashmac) {
 		// Only announce if we’re the joiner
 		if (lightThread->getRole() != Role::JOINER) return;
 
@@ -32,8 +34,11 @@ void Beeton::begin(LightThread& lt) {
 		std::vector<uint8_t> packet = buildPacket(0xFF, 0xFF, 0xFF, payload);
 
 		lightThread->sendUdp(ip, BEETON::RELIABLE, packet);
-		Serial.println("[Joiner] Sent WHOAREYOU_REPLY automatically");
-	});
+		Serial.println("[Joiner] Sent WHO_AM_I automatically");
+    });
+	
+    
+    loadMappings();
 
 }
 
@@ -68,9 +73,101 @@ void Beeton::onMessage(std::function<void(uint8_t, uint8_t, uint8_t, const std::
     messageCallback = cb;
 }
 
-void Beeton::defineThings(const std::initializer_list<BeetonThing>& list) {
+void Beeton::defineThings(const std::vector<BeetonThing>& list) {
     localThings.assign(list.begin(), list.end());
 }
+
+void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const char* definePath) {
+    if (!SD.begin()) {
+        Serial.println("[Beeton] SD card mount failed!");
+        return;
+    }
+
+    File thingsFile = SD.open(thingsPath);
+    if (thingsFile) {
+        while (thingsFile.available()) {
+            String line = thingsFile.readStringUntil('\n');
+            line.trim();
+            line.toLowerCase();
+            if (line.length() == 0 || line.startsWith("#")) continue;
+
+            int comma = line.indexOf(',');
+            if (comma > 0) {
+                String name = line.substring(0, comma);
+                uint8_t id = line.substring(comma + 1).toInt();
+                nameToThing[name] = id;
+                thingToName[id] = name;
+            }
+        }
+        thingsFile.close();
+    }
+
+    File actionsFile = SD.open(actionsPath);
+    if (actionsFile) {
+        while (actionsFile.available()) {
+            String line = actionsFile.readStringUntil('\n');
+            line.trim();
+            line.toLowerCase();
+            if (line.length() == 0 || line.startsWith("#")) continue;
+
+            int first = line.indexOf(',');
+            int second = line.indexOf(',', first + 1);
+            if (first > 0 && second > first) {
+                String thing = line.substring(0, first);
+                String action = line.substring(first + 1, second);
+                uint8_t id = line.substring(second + 1).toInt();
+                actionNameToId[thing][action] = id;
+                actionIdToName[thing][id] = action;
+                Serial.printf("Parsed action mapping: %s,%s -> %d\n", thing.c_str(), action.c_str(), id);
+            }
+        }
+        actionsFile.close();
+    }
+
+    File defineFile = SD.open(definePath);
+    if (defineFile) {
+        while (defineFile.available()) {
+            String line = defineFile.readStringUntil('\n');
+            line.trim();
+            line.toLowerCase();
+            if (line.length() == 0 || line.startsWith("#")) continue;
+
+            int comma = line.indexOf(',');
+            if (comma > 0) {
+                String thing = line.substring(0, comma);
+                uint8_t id = line.substring(comma + 1).toInt();
+                Serial.println(line);
+                if (nameToThing.count(thing)) {
+                    localThings.push_back({ nameToThing[thing], id });
+                }
+            }
+        }
+        defineFile.close();
+    }
+}
+
+
+
+String Beeton::getThingName(uint8_t thing) {
+    return thingToName.count(thing) ? thingToName[thing] : "unknown";
+}
+
+String Beeton::getActionName(String thingName, uint8_t actionId) {
+    return actionIdToName[thingName].count(actionId) ? actionIdToName[thingName][actionId] : "unknown";
+}
+
+uint8_t Beeton::getThingId(const String& name) {
+    return nameToThing.count(name) ? nameToThing[name] : 0xFF;
+}
+
+uint8_t Beeton::getActionId(const String& thingName, const String& actionName) {
+    if (actionNameToId.count(thingName) && actionNameToId[thingName].count(actionName)) {
+        return actionNameToId[thingName][actionName];
+    }
+    return 0xFF;
+}
+
+
 
 std::vector<uint8_t> Beeton::buildPacket(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     std::vector<uint8_t> out;
@@ -97,8 +194,9 @@ bool Beeton::parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_
 
 void Beeton::handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     if (thing == 0xFF && id == 0xFF && action == 0xFF) {
+    
 		if (lightThread && lightThread->getRole() == Role::LEADER) {
-			// Map each (thing, id) to the joiner's IP
+		        // Map each (thing, id) to the joiner's IP
 			for (size_t i = 0; i + 1 < payload.size(); i += 2) {
 				uint8_t t = payload[i];
 				uint8_t i_ = payload[i + 1];
