@@ -2,9 +2,14 @@
 #include <FS.h>
 #include <SD.h>
 
+// Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread& lt) {
     lightThread = &lt;
-
+    
+    // Load name→ID mappings from SD card
+    loadMappings();
+    
+    // Register callback for all incoming UDP messages
     lightThread->registerUdpReceiveCallback([this](const String& srcIp, const std::vector<uint8_t>& payload) {
 		if (payload.size() < 4) {
 			log_d("Beeton: Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
@@ -14,6 +19,7 @@ void Beeton::begin(LightThread& lt) {
 		uint8_t thing, id, action;
 		std::vector<uint8_t> content;
 
+                // Parse the message and route it internally
 		if (parsePacket(payload, thing, id, action, content)) {
 			handleInternalMessage(srcIp, thing, id, action, content);
 		} else {
@@ -21,10 +27,12 @@ void Beeton::begin(LightThread& lt) {
 		}
 	});
 	
+    // Register callback for join events (only runs on joiner)
     lightThread->registerJoinCallback([this](const String& ip, const String& hashmac) {
 		// Only announce if we’re the joiner
 		if (lightThread->getRole() != Role::JOINER) return;
-
+                
+                // Package all local things into a WHO_AM_I announcement
 		std::vector<uint8_t> payload;
 		for (const auto& entry : localThings) {
 			payload.push_back(entry.thing);
@@ -38,24 +46,27 @@ void Beeton::begin(LightThread& lt) {
     });
 	
     
-    loadMappings();
 
 }
 
+// Forward update call to LightThread instance
 void Beeton::update() {
     if (lightThread) lightThread->update();
 }
 
+// Overload for sending a message without payload
 bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action){
 	std::vector<uint8_t> payload;  // empty vector
     return send(reliable, thing, id, action, payload);
 }
 
+// Overload for sending a message with a single byte payload
 bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint8_t payloadByte) {
     std::vector<uint8_t> payload = { payloadByte };
     return send(reliable, thing, id, action, payload);
 }
 
+// Send message to a known (thing, id) destination, if its IP is known
 bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     if (!lightThread) return false;
     uint16_t key = (thing << 8) | id;
@@ -69,20 +80,25 @@ bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, cons
     return lightThread->sendUdp(thingIdToIp[key], reliable, packet);
 }
 
+
+// Register user-defined message handler callback
 void Beeton::onMessage(std::function<void(uint8_t, uint8_t, uint8_t, const std::vector<uint8_t>&)> cb) {
     messageCallback = cb;
 }
 
+// Provide list of local things this device represents
 void Beeton::defineThings(const std::vector<BeetonThing>& list) {
     localThings.assign(list.begin(), list.end());
 }
 
+// Load .csv mappings for things, actions, and local IDs
 void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const char* definePath) {
     if (!SD.begin()) {
         Serial.println("[Beeton] SD card mount failed!");
         return;
     }
 
+    // Parse things.csv: name,id → populate nameToThing and thingToName
     File thingsFile = SD.open(thingsPath);
     if (thingsFile) {
         while (thingsFile.available()) {
@@ -101,7 +117,8 @@ void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const
         }
         thingsFile.close();
     }
-
+  
+    // Parse actions.csv: thing,action,id → populate per-thing action maps
     File actionsFile = SD.open(actionsPath);
     if (actionsFile) {
         while (actionsFile.available()) {
@@ -123,7 +140,8 @@ void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const
         }
         actionsFile.close();
     }
-
+    
+    // Parse define.csv: thing,id → register as localThings
     File defineFile = SD.open(definePath);
     if (defineFile) {
         while (defineFile.available()) {
@@ -147,7 +165,7 @@ void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const
 }
 
 
-
+// Lookup functions for name ↔ ID mappings
 String Beeton::getThingName(uint8_t thing) {
     return thingToName.count(thing) ? thingToName[thing] : "unknown";
 }
@@ -167,8 +185,7 @@ uint8_t Beeton::getActionId(const String& thingName, const String& actionName) {
     return 0xFF;
 }
 
-
-
+// Construct a packet from components
 std::vector<uint8_t> Beeton::buildPacket(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     std::vector<uint8_t> out;
     out.push_back(thing);
@@ -179,6 +196,7 @@ std::vector<uint8_t> Beeton::buildPacket(uint8_t thing, uint8_t id, uint8_t acti
     return out;
 }
 
+// Attempt to parse a received packet
 bool Beeton::parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_t& id, uint8_t& action, std::vector<uint8_t>& payload) {
     if (raw.size() < 4) return false;
 
@@ -192,6 +210,7 @@ bool Beeton::parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_
     return true;
 }
 
+// Handle packets directed to 0xFF: WHO_AM_I messages from joiners
 void Beeton::handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     if (thing == 0xFF && id == 0xFF && action == 0xFF) {
     
