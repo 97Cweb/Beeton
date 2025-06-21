@@ -10,7 +10,7 @@ void Beeton::begin(LightThread& lt) {
     loadMappings();
     
     // Register callback for all incoming UDP messages
-    lightThread->registerUdpReceiveCallback([this](const String& srcIp, const std::vector<uint8_t>& payload) {
+    lightThread->registerUdpReceiveCallback([this](const String& srcIp, const bool reliable, const std::vector<uint8_t>& payload) {
 		if (payload.size() < 4) {
 			log_d("Beeton: Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
 			return;
@@ -21,7 +21,7 @@ void Beeton::begin(LightThread& lt) {
 
                 // Parse the message and route it internally
 		if (parsePacket(payload, thing, id, action, content)) {
-			handleInternalMessage(srcIp, thing, id, action, content);
+			handleInternalMessage(srcIp, reliable, thing, id, action, content);
 		} else {
 			log_w("Beeton: Invalid packet from %s", srcIp.c_str());
 		}
@@ -218,22 +218,35 @@ bool Beeton::parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_
     return true;
 }
 
-// Handle packets directed to 0xFF: WHO_AM_I messages from joiners
-void Beeton::handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+
+void Beeton::handleInternalMessage(const String& srcIp, bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
+    // Handle packets directed to 0xFF: WHO_I_AM messages from joiners
     if (thing == 0xFF && id == 0xFF && action == 0xFF) {
     
-		if (lightThread && lightThread->getRole() == Role::LEADER) {
-		        // Map each (thing, id) to the joiner's IP
-			for (size_t i = 0; i + 1 < payload.size(); i += 2) {
-				uint8_t t = payload[i];
-				uint8_t i_ = payload[i + 1];
-				uint16_t key = (t << 8) | i_;
-				thingIdToIp[key] = srcIp;
-				Serial.printf("[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
-			}
-		}
-		return;
-	}
+      if (lightThread && lightThread->getRole() == Role::LEADER) {
+              // Map each (thing, id) to the joiner's IP
+        for (size_t i = 0; i + 1 < payload.size(); i += 2) {
+	        uint8_t t = payload[i];
+	        uint8_t i_ = payload[i + 1];
+	        uint16_t key = (t << 8) | i_;
+	        thingIdToIp[key] = srcIp;
+	        Serial.printf("[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
+        }
+      }
+      return;
+    }
+    
+    //handle messages coming from controllers seeking things
+    else if (lightThread && lightThread->getRole() == Role::LEADER){
+      //look up thingid
+      uint8_t t = thing;
+      uint16_t key = (thing << 8) | id;
+      String dest = thingIdToIp[key];
+      
+      
+      Serial.printf("forwarding message to %02X:%d at %s\n",thing,id, dest.c_str());
+      send(reliable, thing, id, action, payload);
+    }
 
 
     // Call user callback only for normal messages

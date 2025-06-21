@@ -56,7 +56,7 @@ private:
 
     std::vector<uint8_t> buildPacket(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
     bool parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_t& id, uint8_t& action, std::vector<uint8_t>& payload);
-    void handleInternalMessage(const String& srcIp, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
+    void handleInternalMessage(const String& srcIp, bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
 };
 
 #endif // BEETON_PROTOCOL_H
