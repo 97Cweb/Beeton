@@ -69,15 +69,23 @@ bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint
 // Send message to a known (thing, id) destination, if its IP is known
 bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     if (!lightThread) return false;
-    uint16_t key = (thing << 8) | id;
+    
+    if(lightThread->getRole() == Role::LEADER){
+      
+      uint16_t key = (thing << 8) | id;
 
-    if (!thingIdToIp.count(key)) {
-        log_w("Beeton: No IP for thing %u id %u", thing, id);
-        return false;
+      if (!thingIdToIp.count(key)) {
+          log_w("Beeton: No IP for thing %u id %u", thing, id);
+          return false;
+      }
+
+      std::vector<uint8_t> packet = buildPacket(thing, id, action, payload);
+      return lightThread->sendUdp(thingIdToIp[key], reliable, packet);
     }
-
-    std::vector<uint8_t> packet = buildPacket(thing, id, action, payload);
-    return lightThread->sendUdp(thingIdToIp[key], reliable, packet);
+    else if (lightThread->getRole() == Role::JOINER){
+      std::vector<uint8_t> packet = buildPacket(thing, id, action, payload);
+      return lightThread->sendUdp(lightThread->getLeaderIp(), reliable, packet);
+    }
 }
 
 
