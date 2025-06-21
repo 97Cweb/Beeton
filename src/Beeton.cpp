@@ -106,71 +106,112 @@ void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const
         return;
     }
 
-    // Parse things.csv: name,id → populate nameToThing and thingToName
-    File thingsFile = SD.open(thingsPath);
-    if (thingsFile) {
-        while (thingsFile.available()) {
-            String line = thingsFile.readStringUntil('\n');
-            line.trim();
-            line.toLowerCase();
-            if (line.length() == 0 || line.startsWith("#")) continue;
+    ensureFileExists(thingsPath);
+    ensureFileExists(actionsPath);
+    ensureFileExists(definePath);
 
-            int comma = line.indexOf(',');
-            if (comma > 0) {
-                String name = line.substring(0, comma);
-                uint8_t id = line.substring(comma + 1).toInt();
-                nameToThing[name] = id;
-                thingToName[id] = name;
+    loadThings(thingsPath);
+    loadActions(actionsPath);
+    loadDefines(definePath);
+}
+
+void Beeton::ensureFileExists(const char* path) {
+    String filePath = String(path);
+    int slashIndex = filePath.lastIndexOf('/');
+
+    // Step 1: Create folder if it doesn't exist
+    if (slashIndex > 0) {
+        String folder = filePath.substring(0, slashIndex);
+        if (!SD.exists(folder)) {
+            if (SD.mkdir(folder)) {
+                Serial.printf("[Beeton] Created folder: %s\n", folder.c_str());
+            } else {
+                Serial.printf("[Beeton] Failed to create folder: %s\n", folder.c_str());
             }
         }
-        thingsFile.close();
     }
-  
-    // Parse actions.csv: thing,action,id → populate per-thing action maps
-    File actionsFile = SD.open(actionsPath);
-    if (actionsFile) {
-        while (actionsFile.available()) {
-            String line = actionsFile.readStringUntil('\n');
-            line.trim();
-            line.toLowerCase();
-            if (line.length() == 0 || line.startsWith("#")) continue;
 
-            int first = line.indexOf(',');
-            int second = line.indexOf(',', first + 1);
-            if (first > 0 && second > first) {
-                String thing = line.substring(0, first);
-                String action = line.substring(first + 1, second);
-                uint8_t id = line.substring(second + 1).toInt();
-                actionNameToId[thing][action] = id;
-                actionIdToName[thing][id] = action;
-                Serial.printf("Parsed action mapping: %s,%s -> %d\n", thing.c_str(), action.c_str(), id);
-            }
+    // Step 2: Create file if it doesn't exist
+    if (!SD.exists(path)) {
+        File f = SD.open(path, FILE_WRITE);
+        if (f) {
+            Serial.printf("[Beeton] Created blank file: %s\n", path);
+            f.close();
+        } else {
+            Serial.printf("[Beeton] Failed to create file: %s\n", path);
         }
-        actionsFile.close();
-    }
-    
-    // Parse define.csv: thing,id → register as localThings
-    File defineFile = SD.open(definePath);
-    if (defineFile) {
-        while (defineFile.available()) {
-            String line = defineFile.readStringUntil('\n');
-            line.trim();
-            line.toLowerCase();
-            if (line.length() == 0 || line.startsWith("#")) continue;
-
-            int comma = line.indexOf(',');
-            if (comma > 0) {
-                String thing = line.substring(0, comma);
-                uint8_t id = line.substring(comma + 1).toInt();
-                Serial.println(line);
-                if (nameToThing.count(thing)) {
-                    localThings.push_back({ nameToThing[thing], id });
-                }
-            }
-        }
-        defineFile.close();
     }
 }
+
+
+void Beeton::loadThings(const char* path) {
+    File file = SD.open(path);
+    if (!file) return;
+
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        line.trim();
+        line.toLowerCase();
+        if (line.length() == 0 || line.startsWith("#")) continue;
+
+        int comma = line.indexOf(',');
+        if (comma > 0) {
+            String name = line.substring(0, comma);
+            uint8_t id = line.substring(comma + 1).toInt();
+            nameToThing[name] = id;
+            thingToName[id] = name;
+        }
+    }
+    file.close();
+}
+
+void Beeton::loadActions(const char* path) {
+    File file = SD.open(path);
+    if (!file) return;
+
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        line.trim();
+        line.toLowerCase();
+        if (line.length() == 0 || line.startsWith("#")) continue;
+
+        int first = line.indexOf(',');
+        int second = line.indexOf(',', first + 1);
+        if (first > 0 && second > first) {
+            String thing = line.substring(0, first);
+            String action = line.substring(first + 1, second);
+            uint8_t id = line.substring(second + 1).toInt();
+            actionNameToId[thing][action] = id;
+            actionIdToName[thing][id] = action;
+            Serial.printf("Parsed action mapping: %s,%s -> %d\n", thing.c_str(), action.c_str(), id);
+        }
+    }
+    file.close();
+}
+
+void Beeton::loadDefines(const char* path) {
+    File file = SD.open(path);
+    if (!file) return;
+
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        line.trim();
+        line.toLowerCase();
+        if (line.length() == 0 || line.startsWith("#")) continue;
+
+        int comma = line.indexOf(',');
+        if (comma > 0) {
+            String thing = line.substring(0, comma);
+            uint8_t id = line.substring(comma + 1).toInt();
+            Serial.println(line);
+            if (nameToThing.count(thing)) {
+                localThings.push_back({ nameToThing[thing], id });
+            }
+        }
+    }
+    file.close();
+}
+
 
 
 // Lookup functions for name ↔ ID mappings

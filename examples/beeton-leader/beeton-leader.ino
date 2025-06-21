@@ -17,16 +17,4 @@ void setup() {
 
 void loop() {
     beeton.update();
-
-    if (lightThread.isReady()) {
-        // Example: send a SETSPEED action to MOTOR 1 every 5 seconds
-        static unsigned long last = 0;
-        if (millis() - last > 5000) {
-            last = millis();
-            Serial.printf("thing %02X\n",beeton.getThingId("train"));
-            Serial.printf("action %02X\n",beeton.getActionId("train", "setspeed"));
-            beeton.send(BEETON::RELIABLE, beeton.getThingId("train"), 1, beeton.getActionId("train", "setspeed"), 100);
-
-        }
-    }
 }

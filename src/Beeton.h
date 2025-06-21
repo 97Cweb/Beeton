@@ -48,6 +48,11 @@ private:
     std::map<String, std::map<uint8_t, String>> actionIdToName;
 
     void loadMappings(const char* thingsPath = "/beeton/all_things.csv",const char* actionsPath = "/beeton/all_actions.csv",const char* definePath = "/beeton/define_this.csv");
+    void ensureFileExists(const char* path);
+    void loadThings(const char* path);
+    void loadActions(const char* path);
+    void loadDefines(const char* path);
+    
     void defineThings(const std::vector<BeetonThing>& list);
     
 
