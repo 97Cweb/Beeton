@@ -12,6 +12,13 @@ namespace BEETON {
     constexpr bool UNRELIABLE = false;
 }
 
+enum BeetonLogLevel {
+    BEETON_LOG_VERBOSE,
+    BEETON_LOG_INFO,
+    BEETON_LOG_WARN,
+    BEETON_LOG_ERROR
+};
+
 struct BeetonThing {
     uint8_t thing;
     uint8_t id;
@@ -46,6 +53,7 @@ private:
     std::map<uint8_t, String> thingToName;
     std::map<String, std::map<String, uint8_t>> actionNameToId;
     std::map<String, std::map<uint8_t, String>> actionIdToName;
+    bool usbConnected = false;
 
     void loadMappings(const char* thingsPath = "/beeton/all_things.csv",const char* actionsPath = "/beeton/all_actions.csv",const char* definePath = "/beeton/define_this.csv");
     void ensureFileExists(const char* path);
@@ -54,7 +62,7 @@ private:
     void loadDefines(const char* path);
     
     void defineThings(const std::vector<BeetonThing>& list);
-    
+    void updateUsb();
 
     std::function<void(uint8_t, uint8_t, uint8_t, const std::vector<uint8_t>&)> messageCallback;
 
@@ -62,6 +70,8 @@ private:
     std::vector<uint8_t> buildPacket(uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
     bool parsePacket(const std::vector<uint8_t>& raw, uint8_t& thing, uint8_t& id, uint8_t& action, std::vector<uint8_t>& payload);
     void handleInternalMessage(const String& srcIp, bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
+    
+    void logBeeton(BeetonLogLevel level, const char* fmt, ...);
 };
 
 #endif // BEETON_PROTOCOL_H

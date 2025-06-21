@@ -17,6 +17,7 @@ void setup() {
         if (thing == "train"){
           if (action == "setspeed" && payload.size() == 1) {
             Serial.printf("[Motor %d] Set speed to %d\n", id, payload[0]);
+            beeton.send(BEETON::RELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train", "setspeed"),payload);
           } 
         } 
         else if (thing == "signal") {

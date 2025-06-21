@@ -10,9 +10,7 @@ void setup() {
     beeton.begin(lightThread);
 
     beeton.onMessage([](uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
-        Serial.printf("Received action %u for %u:%u with %d bytes\n", action, thing, id, payload.size());
-        // You can now do high-level handling here
-    });
+        Serial.printf("update from %02X:%d received, action %02X occurred\n",thing, id, action);    });
 }
 
 void loop() {

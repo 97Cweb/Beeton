@@ -1,6 +1,7 @@
 #include "Beeton.h"
 #include <FS.h>
 #include <SD.h>
+#include <HardwareSerial.h>
 
 // Initialize Beeton and register callbacks with LightThread
 void Beeton::begin(LightThread& lt) {
@@ -9,10 +10,16 @@ void Beeton::begin(LightThread& lt) {
     // Load name→ID mappings from SD card
     loadMappings();
     
+    if (lightThread && lightThread->getRole() == Role::LEADER) {
+      Serial.begin(115200);
+      usbConnected = true;
+      logBeeton(BEETON_LOG_INFO,"Serial Started for Leader");
+    }
+    
     // Register callback for all incoming UDP messages
     lightThread->registerUdpReceiveCallback([this](const String& srcIp, const bool reliable, const std::vector<uint8_t>& payload) {
 		if (payload.size() < 4) {
-			log_d("Beeton: Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
+			logBeeton(BEETON_LOG_INFO, "Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
 			return;
 		}
 		
@@ -23,7 +30,7 @@ void Beeton::begin(LightThread& lt) {
 		if (parsePacket(payload, thing, id, action, content)) {
 			handleInternalMessage(srcIp, reliable, thing, id, action, content);
 		} else {
-			log_w("Beeton: Invalid packet from %s", srcIp.c_str());
+			logBeeton(BEETON_LOG_WARN,"Invalid packet from %s", srcIp.c_str());
 		}
 	});
 	
@@ -42,7 +49,7 @@ void Beeton::begin(LightThread& lt) {
 		std::vector<uint8_t> packet = buildPacket(0xFF, 0xFF, 0xFF, payload);
 
 		lightThread->sendUdp(ip, BEETON::RELIABLE, packet);
-		Serial.println("[Joiner] Sent WHO_AM_I automatically");
+		logBeeton(BEETON_LOG_INFO,"Joiner Sent WHO_AM_I automatically");
     });
 	
     
@@ -52,6 +59,10 @@ void Beeton::begin(LightThread& lt) {
 // Forward update call to LightThread instance
 void Beeton::update() {
     if (lightThread) lightThread->update();
+    
+    if (lightThread && lightThread->getRole() == Role::LEADER) {
+      updateUsb();
+    }
 }
 
 // Overload for sending a message without payload
@@ -75,7 +86,7 @@ bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, cons
       uint16_t key = (thing << 8) | id;
 
       if (!thingIdToIp.count(key)) {
-          log_w("Beeton: No IP for thing %u id %u", thing, id);
+          logBeeton(BEETON_LOG_WARN,"Beeton: No IP for thing %u id %u", thing, id);
           return false;
       }
 
@@ -102,7 +113,7 @@ void Beeton::defineThings(const std::vector<BeetonThing>& list) {
 // Load .csv mappings for things, actions, and local IDs
 void Beeton::loadMappings(const char* thingsPath, const char* actionsPath, const char* definePath) {
     if (!SD.begin()) {
-        Serial.println("[Beeton] SD card mount failed!");
+        logBeeton(BEETON_LOG_ERROR,"SD card mount failed!");
         return;
     }
 
@@ -124,9 +135,9 @@ void Beeton::ensureFileExists(const char* path) {
         String folder = filePath.substring(0, slashIndex);
         if (!SD.exists(folder)) {
             if (SD.mkdir(folder)) {
-                Serial.printf("[Beeton] Created folder: %s\n", folder.c_str());
+                logBeeton(BEETON_LOG_WARN,"Created folder: %s\n", folder.c_str());
             } else {
-                Serial.printf("[Beeton] Failed to create folder: %s\n", folder.c_str());
+                logBeeton(BEETON_LOG_ERROR,"Failed to create folder: %s\n", folder.c_str());
             }
         }
     }
@@ -135,10 +146,10 @@ void Beeton::ensureFileExists(const char* path) {
     if (!SD.exists(path)) {
         File f = SD.open(path, FILE_WRITE);
         if (f) {
-            Serial.printf("[Beeton] Created blank file: %s\n", path);
+            logBeeton(BEETON_LOG_WARN,"Created blank file: %s\n", path);
             f.close();
         } else {
-            Serial.printf("[Beeton] Failed to create file: %s\n", path);
+            logBeeton(BEETON_LOG_ERROR,"Failed to create file: %s\n", path);
         }
     }
 }
@@ -183,7 +194,7 @@ void Beeton::loadActions(const char* path) {
             uint8_t id = line.substring(second + 1).toInt();
             actionNameToId[thing][action] = id;
             actionIdToName[thing][id] = action;
-            Serial.printf("Parsed action mapping: %s,%s -> %d\n", thing.c_str(), action.c_str(), id);
+            logBeeton(BEETON_LOG_INFO,"Parsed action mapping: %s,%s -> %d\n", thing.c_str(), action.c_str(), id);
         }
     }
     file.close();
@@ -271,7 +282,7 @@ void Beeton::handleInternalMessage(const String& srcIp, bool reliable, uint8_t t
 	        uint8_t i_ = payload[i + 1];
 	        uint16_t key = (t << 8) | i_;
 	        thingIdToIp[key] = srcIp;
-	        Serial.printf("[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
+	        logBeeton(BEETON_LOG_INFO,"[Leader] Mapped %02X:%d to %s\n", t, i_, srcIp.c_str());
         }
       }
       return;
@@ -284,9 +295,14 @@ void Beeton::handleInternalMessage(const String& srcIp, bool reliable, uint8_t t
       uint16_t key = (thing << 8) | id;
       String dest = thingIdToIp[key];
       
+      // If the sender is not the registered owner of the thing, forward the message
+      if(!dest.equals(srcIp)){
+        logBeeton(BEETON_LOG_INFO,"forwarding message to %02X:%d at %s\n",thing,id, dest.c_str());
+        send(reliable, thing, id, action, payload);
+        return;
+      }
       
-      Serial.printf("forwarding message to %02X:%d at %s\n",thing,id, dest.c_str());
-      send(reliable, thing, id, action, payload);
+      // Otherwise, fall through and invoke the leader's local message callback
     }
 
 
@@ -295,4 +311,45 @@ void Beeton::handleInternalMessage(const String& srcIp, bool reliable, uint8_t t
         messageCallback(thing, id, action, payload);
     }
 }
+
+void Beeton::updateUsb() {
+    static String input = "";
+
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            if (input.length() > 0) {
+                Serial.print("ECHO: ");
+                Serial.println(input);
+                input = "";
+            }
+        } else {
+            input += c;
+        }
+    }
+}
+
+void Beeton::logBeeton(BeetonLogLevel level, const char* fmt, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
+    switch (level) {
+        case BEETON_LOG_VERBOSE:
+            log_v("[Beeton] %s", buffer);
+            break;
+        case BEETON_LOG_INFO:
+            log_i("[Beeton] %s", buffer);
+            break;
+        case BEETON_LOG_WARN:
+            log_w("[Beeton] %s", buffer);
+            break;
+        case BEETON_LOG_ERROR:
+            log_e("[Beeton] %s", buffer);
+            break;
+    }
+}
+
 
