@@ -62,6 +62,9 @@ private:
     void loadDefines(const char* path);
     
     void defineThings(const std::vector<BeetonThing>& list);
+    
+    void sendAllKnownThingsToUsb();
+    void sendUsb(const char* fmt, ...);
     void updateUsb();
 
     std::function<void(uint8_t, uint8_t, uint8_t, const std::vector<uint8_t>&)> messageCallback;

@@ -312,6 +312,34 @@ void Beeton::handleInternalMessage(const String& srcIp, bool reliable, uint8_t t
     }
 }
 
+void Beeton::sendAllKnownThingsToUsb(){
+  if(!lightThread){
+    return;
+  }
+  for(const auto& entry: thingIdToIp){
+    uint16_t key = entry.first;
+    const String& ip = entry.second;
+
+    uint8_t thing = (key >> 8) & 0xFF;
+    uint8_t id    = key & 0xFF;
+    unsigned long lastSeen = lightThread->getLastEchoTime(ip);
+    
+    sendUsb("THING %02X:%d, lastSeen=%lu ms ago\n",
+                      thing, id, millis() - lastSeen);
+  }
+}
+
+void Beeton::sendUsb(const char* fmt, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
+    Serial.print("[USB] ");
+    Serial.println(buffer);  // for now just output directly
+}
+
 void Beeton::updateUsb() {
     static String input = "";
 
@@ -319,8 +347,14 @@ void Beeton::updateUsb() {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
             if (input.length() > 0) {
-                Serial.print("ECHO: ");
-                Serial.println(input);
+                input.trim();  // Remove any accidental whitespace
+
+                if (input.equalsIgnoreCase("GETTHINGS")) {
+                    sendAllKnownThingsToUsb();
+                } else {
+                    sendUsb("ECHO: %s", input.c_str());
+                }
+
                 input = "";
             }
         } else {
