@@ -51,6 +51,30 @@ void Beeton::sendUsb(const char* fmt, ...) {
     Serial.println(buffer);  // for now just output directly
 }
 
+void Beeton::sendCommandFromUsb(String sendCommand){
+  std::vector<String> parts = splitCsv(sendCommand);
+  if(parts.size()>=5){
+    bool reliable = parts[0].toInt();
+    uint8_t thingId = parts[1].toInt();
+    uint8_t id = parts[2].toInt();
+    uint8_t actionId = parts[3].toInt();
+    std::vector<uint8_t> payload;
+    for (size_t i = 4; i < parts.size(); ++i) {
+        payload.push_back(parts[i].toInt());
+    }
+    
+    if(thingId == 0xFF || actionId == 0xFF){
+      sendUsb("ERROR: Unknown thing/action");
+    }
+    else{
+      send(reliable, thingId, id, actionId, payload);
+    }
+  }
+  else{
+    sendUsb("Error: Usage SEND,reliable,thing,id,action,payload[0],payload[1]...");
+  }
+}
+
 void Beeton::updateUsb() {
     static String input = "";
 
@@ -67,10 +91,13 @@ void Beeton::updateUsb() {
                   String filename = input.substring(8);
                   sendFileOverUsb(filename);
                 }
+                else if(input.startsWith("SEND,")){
+                  String sendCommand = input.substring(5);
+                  sendCommandFromUsb(sendCommand);
+                }
                 else {
                     sendUsb("ECHO: %s", input.c_str());
                 }
-
                 input = "";
             }
         } else {

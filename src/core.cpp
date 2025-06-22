@@ -15,7 +15,7 @@ void Beeton::begin(LightThread& lt) {
     // Register callback for all incoming UDP messages
     lightThread->registerUdpReceiveCallback([this](const String& srcIp, const bool reliable, const std::vector<uint8_t>& payload) {
 		if (payload.size() < 4) {
-			logBeeton(BEETON_LOG_INFO, "Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
+			logBeeton(BEETON_LOG_DEBUG, "Ignored short packet from %s (len=%d)", srcIp.c_str(), payload.size());
 			return;
 		}
 		
@@ -77,6 +77,14 @@ bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, uint
 bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload) {
     if (!lightThread) return false;
     
+    logBeeton(BEETON_LOG_INFO, "Send %s → thing %02X id %u action %02X payload [%s]",
+          reliable ? "RELIABLE" : "UNRELIABLE",
+          thing,
+          id,
+          action,
+          formatPayload(payload).c_str());
+
+    
     if(lightThread->getRole() == Role::LEADER){
       
       uint16_t key = (thing << 8) | id;
@@ -85,7 +93,7 @@ bool Beeton::send(bool reliable, uint8_t thing, uint8_t id, uint8_t action, cons
           logBeeton(BEETON_LOG_WARN,"Beeton: No IP for thing %u id %u", thing, id);
           return false;
       }
-
+      
       std::vector<uint8_t> packet = buildPacket(thing, id, action, payload);
       return lightThread->sendUdp(thingIdToIp[key], reliable, packet);
     }

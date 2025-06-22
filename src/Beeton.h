@@ -13,7 +13,7 @@ namespace BEETON {
 }
 
 enum BeetonLogLevel {
-    BEETON_LOG_VERBOSE,
+    BEETON_LOG_DEBUG,
     BEETON_LOG_INFO,
     BEETON_LOG_WARN,
     BEETON_LOG_ERROR
@@ -66,6 +66,7 @@ private:
     void sendAllKnownThingsToUsb();
     void sendFileOverUsb(String filename);
     void sendUsb(const char* fmt, ...);
+    void sendCommandFromUsb(String sendCommand);
     void updateUsb();
 
     std::function<void(uint8_t, uint8_t, uint8_t, const std::vector<uint8_t>&)> messageCallback;
@@ -76,6 +77,8 @@ private:
     void handleInternalMessage(const String& srcIp, bool reliable, uint8_t thing, uint8_t id, uint8_t action, const std::vector<uint8_t>& payload);
     
     void logBeeton(BeetonLogLevel level, const char* fmt, ...);
+    std::vector<String> splitCsv(const String& input);
+    String formatPayload(const std::vector<uint8_t>& payload); 
 };
 
 #endif // BEETON_PROTOCOL_H
