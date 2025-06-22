@@ -316,6 +316,7 @@ void Beeton::sendAllKnownThingsToUsb(){
   if(!lightThread){
     return;
   }
+  sendUsb("BEGIN_THINGS");
   for(const auto& entry: thingIdToIp){
     uint16_t key = entry.first;
     const String& ip = entry.second;
@@ -327,6 +328,26 @@ void Beeton::sendAllKnownThingsToUsb(){
     sendUsb("THING %02X:%d, lastSeen=%lu ms ago\n",
                       thing, id, millis() - lastSeen);
   }
+  sendUsb("END_THINGS");
+}
+
+void Beeton::sendFileOverUsb(String filename){
+  File f = SD.open("/beeton/" + filename);
+  if (!f) {
+      sendUsb("ERROR: File %s not found", filename.c_str());
+      return;
+  }
+
+  sendUsb("BEGIN_FILE,%s", filename.c_str());
+  while (f.available()) {
+      String line = f.readStringUntil('\n');
+      line.trim();
+      if (line.length() > 0) {
+          sendUsb("%s", line.c_str());
+      }
+  }
+  f.close();
+  sendUsb("END_FILE,%s", filename.c_str());
 }
 
 void Beeton::sendUsb(const char* fmt, ...) {
@@ -351,7 +372,12 @@ void Beeton::updateUsb() {
 
                 if (input.equalsIgnoreCase("GETTHINGS")) {
                     sendAllKnownThingsToUsb();
-                } else {
+                }
+                else if(input.startsWith("GETFILE,")){
+                  String filename = input.substring(8);
+                  sendFileOverUsb(filename);
+                }
+                else {
                     sendUsb("ECHO: %s", input.c_str());
                 }
 

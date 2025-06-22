@@ -64,6 +64,7 @@ private:
     void defineThings(const std::vector<BeetonThing>& list);
     
     void sendAllKnownThingsToUsb();
+    void sendFileOverUsb(String filename);
     void sendUsb(const char* fmt, ...);
     void updateUsb();
 
