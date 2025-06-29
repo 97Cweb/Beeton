@@ -60,7 +60,7 @@ void Beeton::loadThings(const char* path) {
         int comma = line.indexOf(',');
         if (comma > 0) {
             String name = line.substring(0, comma);
-            uint8_t id = line.substring(comma + 1).toInt();
+            uint16_t id = line.substring(comma + 1).toInt();
             nameToThing[name] = id;
             thingToName[id] = name;
         }

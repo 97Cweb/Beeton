@@ -11,7 +11,7 @@ void setup() {
     beeton.begin(lightThread);
 
     // Handle only user-defined actions
-    beeton.onMessage([](uint8_t thingId, uint8_t id, uint8_t actionId, const std::vector<uint8_t>& payload) {
+    beeton.onMessage([](uint16_t thingId, uint8_t id, uint8_t actionId, const std::vector<uint8_t>& payload) {
         String thing = beeton.getThingName(thingId);
         String action = beeton.getActionName(thing, actionId);
         if (thing == "train"){
