@@ -20,4 +20,4 @@ Make sure LightThread is installed in your Arduino libraries folder or symlinked
 ## Installation
 
 ```bash
-git clone https://github.com/YourUsername/Beeton.git
+git clone https://github.com/97Cweb/Beeton.git
