@@ -3,9 +3,18 @@
 LightThread lightThread;
 Beeton beeton;
 
+const int IN1 = GPIO_NUM_4;
+const int IN2 = GPIO_NUM_5;
+
+const uint32_t frequency = 20000;
+const uint8_t resolution = 8;
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
+
+    ledcAttach(IN1,frequency,resolution);
+    ledcAttach(IN2,frequency,resolution);
 
     lightThread.begin();
     beeton.begin(lightThread);
@@ -16,13 +25,29 @@ void setup() {
         String action = beeton.getActionName(thing, actionId);
         if (thing == "train"){
           if (action == "setspeed" && payload.size() == 1) {
-            Serial.printf("[Motor %d] Set speed to %d\n", id, payload[0]);
-            beeton.send(BEETON::RELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train", "setspeed"),payload);
+            int speed = payload[0]*2 - 255;
+            Serial.println(speed);
+            if(speed >=0){
+              ledcWrite(IN1, speed);
+              ledcWrite(IN2, 0);
+            }
+            else{
+              ledcWrite(IN1,0);
+              ledcWrite(IN2, abs(speed));
+            }
           } 
+          if (action == "coast"){
+            Serial.println("coasting");
+            ledcWrite(IN1, 0);
+            ledcWrite(IN2, 0);
+
+          }
+          if(action == "stop"){
+            Serial.println("stopping");
+            ledcWrite(IN1, 255);
+            ledcWrite(IN2, 255);
+          }
         } 
-        else if (thing == "signal") {
-            Serial.printf("🚦 Signal %d: Action %d\n", id, action);
-        }
     });
 }
 

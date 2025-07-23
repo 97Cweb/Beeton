@@ -2,6 +2,14 @@
 
 LightThread lightThread;
 Beeton beeton;
+int oldKnobPos = 0;
+
+
+bool oldButtonState = false;
+unsigned long pressedTime = 0;
+const int LONG_PRESS_TIME = 500;
+
+bool sentStop = false;
 
 void setup() {
     Serial.begin(115200);
@@ -11,16 +19,42 @@ void setup() {
     beeton.begin(lightThread);
 
     pinMode(GPIO_NUM_14,INPUT_PULLUP);
+    pinMode(GPIO_NUM_0, INPUT);
+    
+    analogReadResolution(8);
+
 }
 
 void loop() {
     beeton.update();
     if(lightThread.isReady()){
       
-      bool buttonPress = !digitalRead(GPIO_NUM_14);
-      Serial.printf("button %d\n",buttonPress);
-      if (buttonPress){
-        beeton.send(BEETON::RELIABLE, beeton.getThingId("train"), 1, beeton.getActionId("train", "setspeed"), 100);
+      bool buttonState = !digitalRead(GPIO_NUM_14);
+      if(oldButtonState == false && buttonState == true){
+        pressedTime = millis();
+        sentStop = false;
+      }
+      else if(oldButtonState == true && buttonState == true && !sentStop){
+        if(millis()-pressedTime  > LONG_PRESS_TIME){
+          beeton.send(BEETON::RELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train","stop"));
+      
+          sentStop = true;
+        }
+      }
+      else if(oldButtonState == true && buttonState == false){
+        if(!sentStop){
+          beeton.send(BEETON::RELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train","coast"));
+      
+        }      
+      }
+      oldButtonState = buttonState;
+
+      int newKnobPos =  analogRead(GPIO_NUM_0); 
+      newKnobPos = map(newKnobPos,0,206,0,255);
+      if(abs(newKnobPos-oldKnobPos) > 10){
+        Serial.printf("knobpos: %d\n",newKnobPos);
+        oldKnobPos = newKnobPos;
+        beeton.send(BEETON::UNRELIABLE,beeton.getThingId("train"),1,beeton.getActionId("train","setspeed"),newKnobPos);
       }
     }
     delay(10);
